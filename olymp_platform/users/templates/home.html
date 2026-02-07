@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+    <h1>Добро пожаловать!</h1>
+
+    {% if user.is_authenticated %}
+        <div class="profile-box">
+            👤 {{ user.username }} <br>
+            ⭐ Рейтинг: {{ user.rating }}
+        </div>
+    {% else %}
+        <p>Пожалуйста, войдите в систему.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

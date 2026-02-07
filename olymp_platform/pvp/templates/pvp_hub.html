@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+  <h2>⚔ PvP</h2>
+
+  <div class="profile-box" style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <div>👤 {{ user.username }}</div>
+    <div>⭐ ELO: <b>{{ user.rating }}</b></div>
+  </div>
+
+  <br>
+
+  {% if waiting %}
+    <p>⏳ У тебя уже идёт поиск соперника (матч #{{ waiting.id }})</p>
+    <a href="{% url 'pvp_match' waiting.id %}">
+      <button>Перейти в матч</button>
+    </a>
+  {% else %}
+    <a href="{% url 'pvp_start_queue' %}">
+      <button>Начать поиск соперника</button>
+    </a>
+  {% endif %}
+</div>
+
+<br>
+
+<div class="card">
+  <h3>📈 ELO по играм</h3>
+  <div class="chart-wrap">
+    <canvas id="eloChart"></canvas>
+  </div>
+  {{ elo_series|json_script:"eloSeries" }}
+</div>
+
+<br>
+
+<div class="card">
+  <h3>🕘 История матчей</h3>
+
+  {% if history %}
+    <table class="pvp-table">
+      <colgroup>
+        <col style="width: 80px;">
+        <col style="width: 130px;">
+        <col>
+        <col style="width: 130px;">
+        <col style="width: 110px;">
+        <col style="width: 90px;">
+      </colgroup>
+
+      <thead>
+        <tr>
+          <th class="c-center">Матч</th>
+          <th class="c-center">Статус</th>
+          <th class="c-left">Соперник</th>
+          <th class="c-center">Исход</th>
+          <th class="c-center">ELO</th>
+          <th class="c-center"></th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for row in history %}
+          <tr>
+            <td class="c-center cell-nowrap">#{{ row.match.id }}</td>
+            <td class="c-center cell-nowrap">{{ row.match.get_status_display }}</td>
+
+            <td class="c-left cell-ellipsis" title="{% if row.opponent %}{{ row.opponent.username }}{% endif %}">
+              {% if row.opponent %}{{ row.opponent.username }}{% else %}—{% endif %}
+            </td>
+
+            <td class="c-center">
+              {% if row.outcome == "W" %}
+                <span class="badge win">Победа</span>
+              {% elif row.outcome == "L" %}
+                <span class="badge lose">Поражение</span>
+              {% elif row.outcome == "D" %}
+                <span class="badge draw">Ничья</span>
+              {% elif row.outcome == "C" %}
+                <span class="badge cancel">Отмена</span>
+              {% elif row.outcome == "T" %}
+                <span class="badge tech">Тех.</span>
+              {% else %}
+                <span class="badge">—</span>
+              {% endif %}
+            </td>
+
+            <td class="c-center">
+              {% if row.elo_delta is not None %}
+                <span class="elo-pill {% if row.elo_delta >= 0 %}pos{% else %}neg{% endif %}">
+                  {% if row.elo_delta >= 0 %}+{% endif %}{{ row.elo_delta }}
+                </span>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+
+            <td class="c-center">
+              <a href="{% url 'pvp_match' row.match.id %}">Открыть</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>Матчей пока не было.</p>
+  {% endif %}
+</div>
+
+<style>
+  .chart-wrap{
+    width: 100%;
+    height: 240px;
+    border-radius: 16px;
+    border: 1px solid rgba(0,0,0,.10);
+    overflow: hidden;
+  }
+  #eloChart{ width: 100%; height: 100%; display:block; }
+
+  .pvp-table{
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .pvp-table th, .pvp-table td{
+    padding: 10px 10px;
+    border-bottom: 1px solid rgba(0,0,0,.08);
+    vertical-align: middle;
+  }
+  .pvp-table th{ font-weight: 700; opacity: .85; }
+
+  .c-center{ text-align: center; }
+  .c-left{ text-align: left; }
+
+  .cell-nowrap{ white-space: nowrap; }
+  .cell-ellipsis{
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .badge{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,.12);
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .win{ border-color: rgba(0, 200, 120, .35); }
+  .lose{ border-color: rgba(255, 80, 80, .35); }
+  .draw{ border-color: rgba(120, 170, 255, .35); }
+  .cancel{ border-color: rgba(0,0,0,.20); opacity:.9; }
+  .tech{ border-color: rgba(255, 170, 0, .35); }
+
+  .elo-pill{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width: 56px;
+    padding: 5px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(0,0,0,.10);
+    font-weight: 700;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .pos{ border-color: rgba(0, 200, 120, .35); }
+  .neg{ border-color: rgba(255, 80, 80, .35); }
+</style>
+
+<script>
+  const series = JSON.parse(document.getElementById("eloSeries").textContent || "[]");
+  const canvas = document.getElementById("eloChart");
+  const ctx = canvas.getContext("2d");
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function drawChart() {
+    resizeCanvas();
+
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle = "rgba(0,0,0,0.02)";
+    ctx.fillRect(0,0,w,h);
+
+    if (!series.length) {
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.font = "14px sans-serif";
+      ctx.fillText("Нет данных: сыграй несколько матчей.", 14, 24);
+      return;
+    }
+
+    const padL = 44, padR = 16, padT = 16, padB = 28;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+
+    let min = Math.min(...series);
+    let max = Math.max(...series);
+    if (min === max) { min -= 10; max += 10; }
+    const extra = Math.max(6, Math.round((max-min) * 0.10));
+    min -= extra; max += extra;
+
+    const X = (i) => padL + (series.length === 1 ? 0 : (i/(series.length-1))*plotW);
+    const Y = (v) => padT + (max - v)/(max - min)*plotH;
+
+    ctx.strokeStyle = "rgba(0,0,0,0.08)";
+    ctx.lineWidth = 1;
+    const gridLines = 4;
+    for (let i=0; i<=gridLines; i++){
+      const yy = padT + (i/gridLines)*plotH;
+      ctx.beginPath();
+      ctx.moveTo(padL, yy);
+      ctx.lineTo(padL + plotW, yy);
+      ctx.stroke();
+
+      const val = Math.round(max - (i/gridLines)*(max-min));
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.font = "12px sans-serif";
+      ctx.fillText(String(val), 10, yy + 4);
+    }
+
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.font = "12px sans-serif";
+    ctx.fillText("игры →", padL + plotW - 46, h - 10);
+
+    ctx.strokeStyle = "rgba(0,0,0,0.70)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(series[0]));
+    for (let i=1; i<series.length; i++) ctx.lineTo(X(i), Y(series[i]));
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(0,0,0,0.06)";
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(series[0]));
+    for (let i=1; i<series.length; i++) ctx.lineTo(X(i), Y(series[i]));
+    ctx.lineTo(X(series.length-1), padT + plotH);
+    ctx.lineTo(X(0), padT + plotH);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(0,0,0,0.85)";
+    for (let i=0; i<series.length; i++){
+      ctx.beginPath();
+      ctx.arc(X(i), Y(series[i]), 3, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    const last = series[series.length - 1];
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.font = "13px sans-serif";
+    ctx.fillText(`ELO: ${last}`, X(series.length-1) - 60, Y(last) - 10);
+  }
+
+  drawChart();
+  window.addEventListener("resize", drawChart);
+</script>
+
+{% endblock %}

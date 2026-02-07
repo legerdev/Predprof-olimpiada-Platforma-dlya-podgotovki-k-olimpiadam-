@@ -1,0 +1,397 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  #toastContainer{
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+  }
+  .toast{
+    pointer-events: none;
+    min-width: 260px;
+    max-width: 420px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.18);
+    background: rgba(25,25,25,.92);
+    color: #fff;
+    font-size: 14px;
+    line-height: 1.25;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity .18s ease, transform .18s ease;
+    border: 1px solid rgba(255,255,255,.10);
+  }
+  .toast.show{ opacity: 1; transform: translateY(0); }
+  .toast.success{ border-color: rgba(0, 200, 120, .35); }
+  .toast.error{ border-color: rgba(255, 80, 80, .35); }
+  .toast.info{ border-color: rgba(120, 170, 255, .35); }
+
+  .pvp-board{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .pvp-side{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-width: 220px;
+  }
+  .pvp-side.right{ justify-content:flex-end; }
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width: 42px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,.12);
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .score{ min-width: 34px; text-align:center; }
+  .timer{
+    opacity:.85;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,.10);
+    white-space: nowrap;
+  }
+
+  .is-hidden{ display:none !important; }
+
+  .answer-row{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    flex-wrap: nowrap;
+    margin-top: 12px;
+  }
+  @media (max-width:640px){
+    .answer-row{ flex-wrap: wrap; }
+  }
+
+  .answer-row > *{ margin:0 !important; }
+
+  #answerInput, #sendBtn, #cancelBtn{
+    height: 44px !important;
+    min-height: 44px !important;
+    box-sizing: border-box !important;
+  }
+
+  #answerInput{
+    flex: 1 1 320px;
+    padding: 0 12px !important;
+    border-radius: 10px;
+    border: 1px solid rgba(0,0,0,.15);
+    line-height: 1.2 !important;
+  }
+
+  #sendBtn, #cancelBtn{
+    padding: 0 16px !important;
+    line-height: 1 !important;
+    display: inline-flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    white-space: nowrap;
+    border-radius: 10px;
+  }
+</style>
+
+<div class="card">
+  <div class="profile-box pvp-board">
+    <div class="pvp-side left">
+      <b id="p1Name">{{ match.player1.username }}</b>
+      <span id="p1Badge" class="pill">⏳</span>
+      <span id="p1Score" class="pill score">0</span>
+    </div>
+
+    <div class="timer">⏱ <span id="timerText">--:--</span></div>
+
+    <div class="pvp-side right">
+      <span id="p2Score" class="pill score">0</span>
+      <span id="p2Badge" class="pill">⏳</span>
+      <b id="p2Name">{% if match.player2 %}{{ match.player2.username }}{% else %}Ожидание...{% endif %}</b>
+    </div>
+  </div>
+
+  <h2 style="margin-top:14px;">⚔ PvP матч #{{ match.id }}</h2>
+
+  <div id="problemBox" class="is-hidden">
+    <hr>
+    <h3 id="problemTitle"></h3>
+    <p id="problemText"></p>
+  </div>
+
+  <div id="waitBox" class="profile-box">
+    ⏳ Идёт подготовка матча...
+  </div>
+
+  <div class="answer-row">
+    <input id="answerInput" placeholder="Ваш ответ..." class="is-hidden">
+    <button id="sendBtn" type="button" class="btn primary is-hidden">Отправить</button>
+    <button id="cancelBtn" type="button" class="btn ghost">Отменить матч</button>
+  </div>
+
+  <form id="cancelForm" method="post" action="{% url 'pvp_cancel_match' match.id %}" style="display:none;">
+    {% csrf_token %}
+  </form>
+</div>
+
+<script>
+  const matchId = {{ match.id }};
+  const statusUrl = `/pvp/match/${matchId}/status/`;
+
+  const problemBox   = document.getElementById("problemBox");
+  const waitBox      = document.getElementById("waitBox");
+  const problemTitle = document.getElementById("problemTitle");
+  const problemText  = document.getElementById("problemText");
+
+  const answerInput  = document.getElementById("answerInput");
+  const sendBtn      = document.getElementById("sendBtn");
+
+  const cancelBtn    = document.getElementById("cancelBtn");
+  const cancelForm   = document.getElementById("cancelForm");
+
+  const p1Name  = document.getElementById("p1Name");
+  const p2Name  = document.getElementById("p2Name");
+  const p1Badge = document.getElementById("p1Badge");
+  const p2Badge = document.getElementById("p2Badge");
+  const p1Score = document.getElementById("p1Score");
+  const p2Score = document.getElementById("p2Score");
+  const timerText = document.getElementById("timerText");
+
+  function ensureToastSystem(){
+    let wrap = document.getElementById("toastContainer");
+    if (!wrap){
+      wrap = document.createElement("div");
+      wrap.id = "toastContainer";
+      document.body.appendChild(wrap);
+    }
+    return wrap;
+  }
+  function showToast(message, type="info", ttl=1800){
+    const wrap = ensureToastSystem();
+    const el = document.createElement("div");
+    el.className = `toast ${type}`;
+    el.textContent = message;
+    wrap.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => {
+      el.classList.remove("show");
+      setTimeout(() => el.remove(), 220);
+    }, ttl);
+  }
+
+  function badgeFor(state){
+    if (state === "correct") return "✅";
+    if (state === "wrong") return "❌";
+    return "⏳";
+  }
+  function isStarted(s){
+    return !!(s && (s.started_at || s.expires_at));
+  }
+
+  let expiresAt = null;
+  let lastState = null;
+  let lastMyAnswerState = null;
+
+  function applyState(s){
+    lastState = s;
+    const started = isStarted(s);
+
+    cancelBtn.textContent = started ? "Сдаться" : "Отменить матч";
+
+    if (s.p1?.username) p1Name.textContent = s.p1.username;
+    if (s.p2?.username) p2Name.textContent = s.p2.username;
+
+    p1Score.textContent = s.p1?.score ?? 0;
+    p2Score.textContent = s.p2?.score ?? 0;
+
+    p1Badge.textContent = badgeFor(s.p1?.state);
+    p2Badge.textContent = badgeFor(s.p2?.state);
+
+    expiresAt = s.expires_at ? new Date(s.expires_at) : null;
+
+    if (s.problem?.title != null) problemTitle.textContent = s.problem.title || "";
+    if (s.problem?.text  != null) problemText.textContent  = s.problem.text  || "";
+
+    answerInput.classList.add("is-hidden");
+    sendBtn.classList.add("is-hidden");
+
+    if (s.status === "waiting") {
+      waitBox.style.display = "block";
+      waitBox.textContent = "⏳ Идёт поиск соперника...";
+      problemBox.classList.add("is-hidden");
+    }
+    else if (s.status === "active" && !started) {
+      waitBox.style.display = "block";
+      waitBox.textContent = "✅ Соперник найден. Ждём подключения обоих игроков...";
+      problemBox.classList.add("is-hidden");
+    }
+    else if (s.status === "active" && started) {
+      waitBox.style.display = "none";
+      problemBox.classList.remove("is-hidden");
+
+      answerInput.classList.remove("is-hidden");
+      sendBtn.classList.remove("is-hidden");
+    }
+
+    const me = s.me;
+    if (me && started && me.state && me.state !== lastMyAnswerState) {
+      if (me.state === "wrong") showToast("❌ Неправильно", "error", 1500);
+      if (me.state === "correct") showToast("✅ Правильно!", "success", 1500);
+      lastMyAnswerState = me.state;
+    }
+
+    if (["finished","cancelled","technical"].includes(s.status)) {
+      if (s.result === "draw") showToast("🤝 Ничья", "info", 2600);
+      else if (s.result === "p1_win" || s.result === "p2_win") {
+        const winner = (s.result === "p1_win") ? s.p1.username : s.p2.username;
+        showToast(`🏆 Победитель: ${winner}`, "success", 2600);
+      } else if (s.result === "cancelled") showToast("🚫 Матч отменён", "info", 2600);
+      else if (s.result === "technical") showToast("⚠ Техническая ошибка / обрыв", "error", 2600);
+
+      sendBtn.disabled = true;
+      answerInput.disabled = true;
+
+      setTimeout(() => location.href="/pvp/", 1600);
+    }
+  }
+
+  setInterval(() => {
+    if (!expiresAt) { timerText.textContent = "--:--"; return; }
+    const ms = expiresAt - new Date();
+    const t = Math.max(0, Math.floor(ms/1000));
+    const mm = String(Math.floor(t/60)).padStart(2,"0");
+    const ss = String(t%60).padStart(2,"0");
+    timerText.textContent = `${mm}:${ss}`;
+  }, 250);
+
+  let pollTimer = null;
+  async function pollOnce(){
+    try{
+      const res = await fetch(statusUrl, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.type === "state") applyState(data);
+    }catch(e){}
+  }
+  function startPolling(){
+    if (pollTimer) return;
+    pollOnce();
+    pollTimer = setInterval(pollOnce, 1200);
+  }
+  function stopPolling(){
+    if (!pollTimer) return;
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+
+  let socket = null;
+  let reconnectAttempts = 0;
+  let reconnectTimer = null;
+
+  function connectWS(){
+    if (reconnectTimer){ clearTimeout(reconnectTimer); reconnectTimer = null; }
+
+    const wsScheme = (window.location.protocol === "https:") ? "wss" : "ws";
+    const url = `${wsScheme}://${window.location.host}/ws/pvp/${matchId}/`;
+
+    try{ if (socket) socket.close(); }catch(e){}
+
+    socket = new WebSocket(url);
+
+    socket.onopen = () => {
+      reconnectAttempts = 0;
+      stopPolling();
+      pollOnce();
+      console.log("WS connected ✅");
+    };
+
+    socket.onmessage = (e) => {
+      let data;
+      try{ data = JSON.parse(e.data); } catch { return; }
+      if (data.type === "state") applyState(data);
+      if (data.type === "toast") showToast(data.message, data.level || "info", 1800);
+    };
+
+    socket.onerror = () => {
+      try{ socket.close(); }catch(e){}
+    };
+
+    socket.onclose = () => {
+      console.log("WS closed ⚠");
+      startPolling();
+
+      const delay = Math.min(5000, 350 * (2 ** reconnectAttempts));
+      reconnectAttempts = Math.min(reconnectAttempts + 1, 7);
+
+      reconnectTimer = setTimeout(connectWS, delay);
+    };
+  }
+
+  startPolling();
+  connectWS();
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      pollOnce();
+      if (!socket || socket.readyState !== WebSocket.OPEN) connectWS();
+    }
+  });
+  window.addEventListener("focus", () => {
+    pollOnce();
+    if (!socket || socket.readyState !== WebSocket.OPEN) connectWS();
+  });
+  window.addEventListener("online", () => {
+    pollOnce();
+    if (!socket || socket.readyState !== WebSocket.OPEN) connectWS();
+  });
+
+  function sendAnswer(){
+    const answer = answerInput.value.trim();
+    if (!answer) return;
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      showToast("🔄 Соединение не готово, пробую переподключиться...", "error", 1600);
+      connectWS();
+      return;
+    }
+
+    socket.send(JSON.stringify({ type:"submit_answer", answer }));
+    answerInput.value = "";
+  }
+
+  sendBtn.addEventListener("click", sendAnswer);
+  answerInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendAnswer();
+  });
+
+  cancelBtn.addEventListener("click", () => {
+    const s = lastState;
+    const started = isStarted(s);
+
+    if (!s || s.status === "waiting" || (s.status === "active" && !started)) {
+      if (confirm("Отменить матч? Рейтинг не изменится.")) cancelForm.submit();
+      return;
+    }
+
+    if (s.status === "active" && started) {
+      if (confirm("Сдаться? Это засчитается как поражение, ELO уменьшится.")) cancelForm.submit();
+    }
+  });
+</script>
+
+{% endblock %}

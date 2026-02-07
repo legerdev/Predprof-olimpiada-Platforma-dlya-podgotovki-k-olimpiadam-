@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+  <h2>📊 Моя статистика</h2>
+
+  <div style="display:flex; gap:20px; flex-wrap:wrap;">
+    <div class="profile-box">Всего попыток: {{ total }}</div>
+    <div class="profile-box">Точность: {{ accuracy }}%</div>
+    <div class="profile-box">Среднее время: {{ avg_time }} сек</div>
+  </div>
+</div>
+
+<br>
+
+<div class="card">
+  <h3>📚 По темам</h3>
+
+  <table style="width:100%; border-collapse:collapse;">
+    <tr>
+      <th align="left">Предмет</th>
+      <th>Точность</th>
+      <th>Правильных</th>
+      <th>Попыток</th>
+    </tr>
+
+  {% for row in topics_stats %}
+    <tr>
+      <td>{{ row.topic }}</td>
+      <td class="c">{{ row.accuracy }}%</td>
+      <td class="c">{{ row.correct }}</td>
+      <td class="c">{{ row.total }}</td>
+    </tr>
+  {% endfor %}
+
+  </table>
+</div>
+
+
+<br>
+
+<div class="card">
+  <h3>📈 Прогресс</h3>
+  <canvas id="progressChart"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+const ctx = document.getElementById('progressChart');
+
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: {{ dates|safe }},
+        datasets: [{
+            label: 'Правильные ответы',
+            data: {{ values|safe }},
+            tension: 0.3
+        }]
+    }
+});
+</script>
+
+{% endblock %}

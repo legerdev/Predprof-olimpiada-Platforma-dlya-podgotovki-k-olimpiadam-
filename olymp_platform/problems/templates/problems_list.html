@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  .problem-card{
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+    box-sizing: border-box;
+  }
+
+  .problem-card .problem-table{
+    width: 100%;
+    max-width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .problem-card .problem-row{
+    width: 100%;
+    max-width: 100%;
+    margin: 0 0 12px 0 !important;
+    box-sizing: border-box;
+
+    display: grid;
+    grid-template-columns:
+      minmax(0, 2fr)
+      minmax(0, 1fr)
+      minmax(0, 1fr)
+      90px
+      110px;
+
+    gap: 12px;
+    align-items: center;
+
+    padding: 14px 16px;
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .problem-card .problem-row > div{ min-width: 0; }
+
+  .problem-card .problem-row.head{
+    background: rgba(15, 91, 96, .95);
+    color: #fff;
+    font-weight: 700;
+    margin-top: 14px !important;
+  }
+
+  .problem-card .problem-row:not(.head){
+    background: rgba(255,255,255,.55);
+  }
+
+  .problem-card .problem-row > div:first-child b{
+    display:block;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .problem-card .topic-badge{
+    display:inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .problem-card .btn-link{
+    display:flex;
+    justify-content:flex-end;
+  }
+
+  @media (max-width: 820px){
+    .problem-card{
+      padding-left: 16px !important;
+      padding-right: 16px !important;
+    }
+
+    .problem-card .problem-row{
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "title title"
+        "subj diff"
+        "topic topic"
+        "btn btn";
+      row-gap: 10px;
+    }
+    .problem-card .problem-row > div:nth-child(1){ grid-area: title; }
+    .problem-card .problem-row > div:nth-child(2){ grid-area: subj; }
+    .problem-card .problem-row > div:nth-child(3){ grid-area: topic; }
+    .problem-card .problem-row > div:nth-child(4){ grid-area: diff; }
+    .problem-card .problem-row > div:nth-child(5){ grid-area: btn; }
+
+    .problem-card .btn-link{ justify-content:flex-start; }
+  }
+</style>
+
+<div class="card">
+  <h2>Банк задач</h2>
+  <p>Выбирай задачу по предмету, теме или сложности.</p>
+
+  <form method="get" class="filters">
+    <div>
+      <label>Предмет</label>
+      <select name="subject">
+        <option value="">Все</option>
+        {% for code, name in subjects %}
+          <option value="{{ code }}" {% if selected_subject == code %}selected{% endif %}>
+            {{ name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label>Тема</label>
+      <input type="text" name="topic" placeholder="например: логарифмы" value="{{ selected_topic }}">
+    </div>
+
+    <div>
+      <label>Сложность</label>
+      <input type="text" name="difficulty" placeholder="1-10" value="{{ selected_difficulty }}">
+    </div>
+
+    <div class="filters-btn">
+      <button type="submit">Фильтр</button>
+    </div>
+  </form>
+</div>
+
+<div class="card problem-card">
+  <a href="{% url 'generate_ai_problem' %}">
+    <button>🤖 AI: сгенерировать задачу</button>
+  </a>
+
+  <div class="problem-table" style="margin-top:14px;">
+    <div class="problem-row head">
+      <div>Название</div>
+      <div>Предмет</div>
+      <div>Тема</div>
+      <div>Сложность</div>
+      <div></div>
+    </div>
+
+    {% for p in problems %}
+      <div class="problem-row">
+        <div><b>{{ p.title }}</b></div>
+
+        <div>
+          <span class="badge">{{ p.get_subject_display }}</span>
+        </div>
+
+        <div>
+          <span class="badge topic-badge" title="{{ p.topic }}">{{ p.topic }}</span>
+        </div>
+
+        <div>
+          <span class="badge diff">{{ p.difficulty }}</span>
+        </div>
+
+        <div class="btn-link">
+          <a href="/problems/{{ p.id }}/">
+            <button type="button">Открыть</button>
+          </a>
+        </div>
+      </div>
+    {% empty %}
+      <p>Задачи не найдены 😢</p>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}
